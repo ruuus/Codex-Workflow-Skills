@@ -100,10 +100,13 @@ def install(skill: str, dest_parent: Path, replace: bool) -> dict:
 
     present = scan(target)
     recorded = None
+    recorded_commit = None
     manifest_path = target / MANIFEST
     if manifest_path.is_file():
         try:
-            recorded = json.loads(manifest_path.read_text(encoding="utf-8")).get("files")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            recorded = manifest.get("files")
+            recorded_commit = manifest.get("source_commit")
         except (OSError, ValueError, AttributeError):
             recorded = None
     if recorded is None or recorded != present:
@@ -116,6 +119,8 @@ def install(skill: str, dest_parent: Path, replace: bool) -> dict:
         return {"ok": True, "action": "replaced", "target": str(target), "backup": str(saved), "reason": reason}
 
     if present == wanted:
+        if recorded_commit != source_commit():
+            write_manifest(target, skill, wanted)
         return {"ok": True, "action": "unchanged", "target": str(target)}
     for rel in set(present) - set(wanted):
         (target / rel).unlink()
