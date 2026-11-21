@@ -48,7 +48,8 @@ def scan(folder: Path) -> dict[str, str]:
 def source_commit() -> str | None:
     try:
         out = subprocess.run(
-            ["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True, text=True, check=True,
+            ["git", "-c", f"safe.directory={REPO.as_posix()}", "-C", str(REPO), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True,
         )
     except (OSError, subprocess.CalledProcessError):
         return None
