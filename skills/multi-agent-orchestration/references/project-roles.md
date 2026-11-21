@@ -59,6 +59,7 @@ python -B -X utf8 <skill>/scripts/roles.py doctor --root .
 ```
 
 - 生成文件 `<项目>/.codex/agents/<agent>.toml`：`developer_instructions` = 岗位模板 + 项目 rules + 候选 instructions。只读岗另写 `sandbox_mode = "read-only"`；托管候选带 `model` 与 `model_reasoning_effort`。
+- `sandbox_mode` 只起提示作用：实测子代理沿用了主控的 workspace-write 沙箱。只读岗的约束依靠岗位指令和主控事后核对，不要把它当作权限隔离。
 - 文件头两行是生成标记和正文哈希。`generate` 只覆盖带标记且未被手改的文件；手改或外来文件拒绝覆盖；从配置中移除的托管文件只报告不删除。
 - `doctor` 的状态：`missing`（不存在）、`current`（与期望一致）、`outdated`（未手改但与当前模板或配置不同）、`modified`（带标记但被手改）、`foreign`（不是本技能生成）。
 - 生成或更新后需要新开会话才会加载，然后重新抄录已加载岗位并 `set-loaded-agents`。

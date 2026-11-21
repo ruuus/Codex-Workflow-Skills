@@ -72,4 +72,4 @@ JSON 输入用 UTF-8 文件或 stdin 传入，不要把长文本拼进命令行�
 - 不冒充具名派发：未加载岗位时只能 inline 或停止，并如实记录 `degraded_reason`。
 - 不声称模型身份或推理档位已生效；岗位文件和目录声明只是期望配置。
 - 不采集、不报告 token 用量或费用。
-- 岗位文件里的 `sandbox_mode` 和合同范围不是操作系统隔离；主控仍须审查实际命令、输出和文件变化。
+- 岗位文件里的 `sandbox_mode` 和合同范围不是操作系统隔离。实测（Codex CLI 0.167.2，主控以 `-s workspace-write` 运行）中，带 `sandbox_mode = "read-only"` 的 reviewer 子代理实际沙箱仍是 workspace-write，只读约束只靠岗位指令；主控须审查实际命令、输出和文件变化（如 `git status`）。
