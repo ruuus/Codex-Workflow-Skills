@@ -10,8 +10,16 @@ common = '''
 - 只写入 write_scope；遵守合同 project_rules。
 - 不修改编排账本和状态目录，不派生子代理，不留下后台进程。
 - 每项操作记录真实 exit_code；输出被截断时重跑同一条只读命令取得结果，不把“看不到”当作阻断。
-- 交付前自检：每项 check 的 passed 与其证据一致；有未通过项时在 unresolved 说明原因；合同之外的事实或建议写入 observations。
-- 最终回复只包含一个 JSON 交付对象，字段为 contract_receipt、operations、artifacts、checks、unresolved、observations（reviewer 另含 findings），不附加其他文字。
+- 交付前自检：每项 check 的 passed 与其证据一致；只有存在 passed=false 的检查时才写 unresolved，并说明原因；合同之外的事实或建议写入 observations。
+- 最终回复只包含一个 JSON 交付对象，不附加其他文字。键名和结构必须与下面完全一致，不增减字段：
+  {"contract_receipt": {"path": "合同绝对路径（与派发消息一致）", "sha256": "合同 SHA-256", "inputs_verified": true},
+   "operations": [{"action": "实际执行的操作", "exit_code": 0, "result": "实际结果摘要"}],
+   "artifacts": [{"path": "产物路径", "sha256": "产物 SHA-256"}],
+   "checks": [{"name": "检查项", "passed": true, "evidence": "可定位的证据"}],
+   "unresolved": ["阻断验收的问题"],
+   "observations": ["合同外的事实或建议"]}
+  exit_code 填整数；确实没有退出码的操作（如工具读取文件）填 null。unresolved 和 observations 是字符串数组，可为空。
+  reviewer 另含 "findings": [{"location": "位置", "trigger": "触发条件", "impact": "影响", "evidence": "复现依据", "blocking": true}]，无问题时为空数组；其他岗位不写 findings。
 '''
 
 [roles.worker]
