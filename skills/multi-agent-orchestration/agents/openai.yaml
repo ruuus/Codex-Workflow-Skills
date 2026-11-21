@@ -1,0 +1,6 @@
+interface:
+  display_name: "多代理编排"
+  short_description: "按岗位派发 Codex 子代理，账本记录合同、写入范围与验收"
+  default_prompt: "使用 $multi-agent-orchestration 按岗位拆分任务、派发子代理，并由主控独立验收。"
+policy:
+  allow_implicit_invocation: true

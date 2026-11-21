@@ -1,0 +1,38 @@
+{
+  "schema": "multi-agent-orchestration/v1",
+  "state_dir": ".orchestration",
+  "protected_paths": ["data/raw"],
+  "startup": {
+    "read": ["AGENTS.md", "docs/status.md"],
+    "preflight": {
+      "command": "python -m unittest discover -s tests",
+      "result": ".orchestration/preflight.txt"
+    }
+  },
+  "rules": [
+    "data/raw 下的原始资料只读",
+    "提交说明使用中文"
+  ],
+  "max_live": 3,
+  "dispatch": "named",
+  "agent_prefix": "proj",
+  "roles": {
+    "worker": {
+      "candidates": [
+        {"agent": "proj_worker", "priority": 1, "model": "example-model-a", "reasoning_effort": "max-available"},
+        {"agent": "proj_worker_light", "priority": 2, "model": "example-model-b", "reasoning_effort": "medium",
+         "instructions": "只处理单文件的小改动。"},
+        {"agent": "orch_worker", "priority": 3}
+      ]
+    },
+    "engineer": {"candidates": [{"agent": "orch_engineer", "priority": 1}]},
+    "reviewer": {
+      "candidates": [
+        {"agent": "orch_reviewer", "priority": 1},
+        {"agent": "proj_reviewer", "priority": 0, "model": "example-model-b"}
+      ]
+    },
+    "researcher": {"candidates": [{"agent": "orch_researcher", "priority": 1}]},
+    "editor": {"candidates": [{"agent": "orch_editor", "priority": 1}]}
+  }
+}
