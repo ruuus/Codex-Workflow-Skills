@@ -26,7 +26,7 @@ JSON 输入用 UTF-8 文件或 stdin 传入，不要把长文本拼进命令行�
 1. 读项目 `AGENTS.md`，以及项目配置 `startup.read` 列出的文件。
 2. 运行 `journal.py config` 和 `roles.py doctor --root .`，确认状态目录、并发上限、保护路径、岗位状态和模型目录。
 3. 配置了 `startup.preflight` 时，主控本轮运行一次该命令，把结果写到 `result` 路径，作为合同 inputs 引用；子代理不重复运行。
-4. 记录已加载岗位：从当前会话原生派发工具（`spawn_agent`）的 `agent_type` 参数说明中抄录可选的精确岗位名；没有该参数时记为空数组。不得用磁盘上的岗位文件列表代替。
+4. 记录已加载岗位：从当前会话原生派发工具（`spawn_agent`）的 `agent_type` 参数说明中抄录可选的精确岗位名；没有该参数时记为空数组。不得用磁盘上的岗位文件列表代替。逐项抄录说明中出现的全部名称，不要只挑与本轮任务相关的；提交前与说明逐一核对，漏抄会导致本可具名派发的任务被降级。
 5. `create-run`：`{"run_id", "objective", "loaded_agents": {"observed_from": "抄录依据", "names": [...]}}`。会话变化（新开会话、岗位重新加载）后用 `set-loaded-agents` 更新。
 
 ## 3. 主循环
@@ -34,7 +34,7 @@ JSON 输入用 UTF-8 文件或 stdin 传入，不要把长文本拼进命令行�
 1. **登记**：`add-task` 写入合同（单个或 `{"tasks":[...]}` 批量，批量原子执行）。账本自动选择岗位并写入 `dispatch`、`project_rules`、`baseline_calls`；inline 时另写 `role_instructions`。返回 `notice` 时把降级原因告诉用户。
 2. **开始**：`start` 检查依赖已 accepted、并发名额、写入范围不重叠、inputs 哈希和岗位选择未漂移，导出不可覆盖的合同文件，返回绝对路径、SHA-256 和派发消息 `message`。
 3. **派发**：用原生工具派发，消息只含 `message` 的内容（岗位、run/task/attempt、合同路径和哈希、核对指令），不转抄合同正文。
-   - named 传 `agent_type=dispatch.agent_type`；inline 不传。
+   - named 传 `agent_type=dispatch.agent_type`；inline 完全省略 `agent_type`（不要填 `default` 等占位值），`bind` 中如实记录实际传入的值。
    - 不继承上下文：v1 `fork_context=false`，v2 `fork_turns="none"`。
    - 不传 `model`、`reasoning_effort`。
    - 派发被拒且没有拿到 Agent 句柄时用 `cancel-start`（不计尝试）。
