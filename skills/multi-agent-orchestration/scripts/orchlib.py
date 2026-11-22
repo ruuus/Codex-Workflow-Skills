@@ -19,6 +19,7 @@ SKILL_NAME = "multi-agent-orchestration"
 CONFIG_SCHEMA = "multi-agent-orchestration/v1"
 ROLES_SCHEMA = "multi-agent-orchestration/roles/v1"
 CONTRACT_SCHEMA = "multi-agent-orchestration/contract/v1"
+PROFILE_SCHEMA = "multi-agent-orchestration/models/v1"
 GENERATED_MARKER = "# generated-by: multi-agent-orchestration/v1"
 BODY_HASH_PREFIX = "# body-sha256: "
 ROLES = ("worker", "engineer", "reviewer", "researcher", "editor")
@@ -34,6 +35,8 @@ ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 PREFIX_RE = re.compile(r"^[a-z][a-z0-9]{0,15}$")
 VARIANT_RE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*$")
+PRESET_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+USER_DIR_NAME = "orchestration"
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 ROLES_FILE = SKILL_DIR / "assets" / "roles.toml"
@@ -178,10 +181,16 @@ def load_role_templates() -> dict[str, Any]:
         raise OrchError("岗位模板必须且只能定义五个岗位")
     for name in ROLES:
         card = roles[name]
-        if set(card) != {"description", "instructions", "read_only"}:
+        required = {"description", "instructions", "read_only"}
+        if not required <= set(card) or set(card) - required - {"needs", "independent_from"}:
             raise OrchError(f"岗位模板 {name} 字段不符")
         if card["read_only"] != (name in READ_ONLY_ROLES):
             raise OrchError(f"岗位模板 {name} 的 read_only 与约定不符")
+        if not is_str_list(card.get("needs", [])):
+            raise OrchError(f"岗位模板 {name} 的 needs 必须是字符串数组")
+        others = card.get("independent_from", [])
+        if not is_str_list(others) or set(others) - set(ROLES) or name in others:
+            raise OrchError(f"岗位模板 {name} 的 independent_from 必须列出其他岗位")
     return data
 
 
@@ -403,7 +412,10 @@ def resolve_model(catalog: dict[str, Any] | None, model: str, effort: str | None
 # ---------------------------------------------------------------- 项目配置
 
 
-TOP_KEYS = {"schema", "state_dir", "protected_paths", "startup", "rules", "max_live", "dispatch", "agent_prefix", "roles"}
+TOP_KEYS = {
+    "schema", "preset", "state_dir", "protected_paths", "startup", "rules", "role_focus",
+    "max_live", "dispatch", "agent_prefix", "roles",
+}
 CANDIDATE_KEYS = {"agent", "priority", "model", "reasoning_effort", "instructions"}
 
 
@@ -467,6 +479,24 @@ def validate_project_config(root: Path, data: Any) -> dict[str, Any]:
     rules = data.get("rules", [])
     if not is_str_list(rules):
         raise OrchError("rules 必须是非空字符串组成的数组")
+
+    role_focus = data.get("role_focus", {})
+    if not isinstance(role_focus, dict):
+        raise OrchError("role_focus 必须是对象（岗位 → 侧重点说明）")
+    for role, text in role_focus.items():
+        if role not in ROLES:
+            raise OrchError(f"role_focus 含未知岗位：{role}")
+        if not isinstance(text, str) or not text.strip():
+            raise OrchError(f"role_focus.{role} 必须是非空字符串")
+
+    preset = data.get("preset")
+    if preset is not None:
+        if not isinstance(preset, dict) or set(preset) != {"name", "sha256"}:
+            raise OrchError("preset 必须且只能包含 name 与 sha256（由 roles.py init 写入）")
+        if not isinstance(preset["name"], str) or not PRESET_NAME_RE.match(preset["name"]):
+            raise OrchError("preset.name 不是合法的预设名")
+        if not isinstance(preset["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", preset["sha256"]):
+            raise OrchError("preset.sha256 必须是 64 位小写十六进制")
 
     if "max_live" in data:
         if not is_int(data["max_live"]) or data["max_live"] < 1:
@@ -536,10 +566,12 @@ def validate_project_config(root: Path, data: Any) -> dict[str, Any]:
 
     return {
         "schema": CONFIG_SCHEMA,
+        "preset": preset,
         "state_dir": state_dir,
         "protected_paths": list(protected),
         "startup": startup,
         "rules": list(rules),
+        "role_focus": {role: text.strip() for role, text in role_focus.items()},
         "max_live": data.get("max_live"),
         "dispatch": dispatch,
         "agent_prefix": prefix,
@@ -557,6 +589,87 @@ def load_project_config(root: Path) -> dict[str, Any]:
     cfg = validate_project_config(root, data)
     cfg.update(present=True, path=str(path), sha256=sha256_file(path))
     return cfg
+
+
+# ---------------------------------------------------------------- 用户级默认配置与模型档案
+
+
+PROFILE_KEYS = {"family", "capabilities", "suited_roles", "evidence", "observed_at", "verified", "retired", "notes"}
+
+
+def user_dir() -> Path:
+    return codex_home() / USER_DIR_NAME
+
+
+def presets_dir() -> Path:
+    return user_dir() / "presets"
+
+
+def profile_path() -> Path:
+    return user_dir() / "models.json"
+
+
+def list_presets() -> list[str]:
+    folder = presets_dir()
+    if not folder.is_dir():
+        return []
+    return sorted(p.stem for p in folder.glob("*.json") if PRESET_NAME_RE.match(p.stem))
+
+
+def load_preset(root: Path, name: str) -> tuple[dict[str, Any], str, Path]:
+    """返回 (预设原始内容, 文件 SHA-256, 路径)。预设本身就是一份不含 preset 键的项目配置。"""
+    if not isinstance(name, str) or not PRESET_NAME_RE.match(name):
+        raise OrchError(f"预设名不合法：{name!r}（小写字母数字、下划线或连字符，最长 32）")
+    path = presets_dir() / f"{name}.json"
+    if not path.is_file():
+        available = ", ".join(list_presets()) or "无"
+        raise OrchError(f"预设不存在：{path}（可用：{available}）")
+    data = read_json_file(path, f"预设 {name}")
+    if isinstance(data, dict) and "preset" in data:
+        raise OrchError(f"预设 {name} 不能包含 preset 键（由 init 写入项目配置）")
+    try:
+        validate_project_config(root, data)
+    except OrchError as exc:
+        raise OrchError(f"预设 {name} 无效：{exc}") from exc
+    return data, sha256_file(path), path
+
+
+def load_model_profile() -> dict[str, Any] | None:
+    """读取用户维护的模型能力档案；不存在时返回 None。"""
+    path = profile_path()
+    if not path.is_file():
+        return None
+    models = validate_model_profile(read_json_file(path, "模型档案"), path)
+    return {"path": str(path), "sha256": sha256_file(path), "models": models}
+
+
+def validate_model_profile(data: Any, path: Path | str = "模型档案") -> dict[str, Any]:
+    if not isinstance(data, dict) or set(data) != {"schema", "models"} or data["schema"] != PROFILE_SCHEMA:
+        raise OrchError(f"模型档案 {path} 须且只能包含 schema（{PROFILE_SCHEMA}）与 models")
+    models = data["models"]
+    if not isinstance(models, dict):
+        raise OrchError("模型档案的 models 必须是对象（模型 slug → 档案）")
+    for slug, entry in models.items():
+        label = f"模型档案 {slug}"
+        if not isinstance(entry, dict):
+            raise OrchError(f"{label} 必须是对象")
+        extra = set(entry) - PROFILE_KEYS
+        if extra:
+            raise OrchError(f"{label} 含未知键：{', '.join(sorted(extra))}")
+        if not isinstance(entry.get("family"), str) or not entry["family"].strip():
+            raise OrchError(f"{label}.family 必须是非空字符串")
+        for key in ("capabilities", "suited_roles"):
+            if not is_str_list(entry.get(key, [])):
+                raise OrchError(f"{label}.{key} 必须是字符串数组")
+        if set(entry.get("suited_roles", [])) - set(ROLES):
+            raise OrchError(f"{label}.suited_roles 含未知岗位")
+        for key in ("verified", "retired"):
+            if key in entry and not isinstance(entry[key], bool):
+                raise OrchError(f"{label}.{key} 必须是布尔值")
+        for key in ("evidence", "observed_at", "notes"):
+            if key in entry and not isinstance(entry[key], str):
+                raise OrchError(f"{label}.{key} 必须是字符串")
+    return models
 
 
 # ---------------------------------------------------------------- 项目托管岗位
@@ -586,6 +699,8 @@ def render_project_agent(
     parts = [role_instructions(role, data).rstrip("\n")]
     if cfg["rules"]:
         parts.append("## Project rules\n" + "\n".join(f"- {rule}" for rule in cfg["rules"]))
+    if cfg["role_focus"].get(role):
+        parts.append("## Project focus for this role\n" + cfg["role_focus"][role])
     if cand.get("instructions"):
         parts.append("## Candidate notes\n" + cand["instructions"].strip())
     fields["developer_instructions"] = "\n\n".join(parts) + "\n"

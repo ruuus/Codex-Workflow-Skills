@@ -13,6 +13,10 @@
     "Raw data under data/raw is read-only",
     "Commit messages follow Conventional Commits"
   ],
+  "role_focus": {
+    "reviewer": "Check for look-ahead bias and time-zone handling in every data join.",
+    "researcher": "Record the publication date of every external source."
+  },
   "max_live": 3,
   "dispatch": "named",
   "agent_prefix": "proj",

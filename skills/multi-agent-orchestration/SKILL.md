@@ -62,7 +62,13 @@ Pass JSON input as a UTF-8 file or via stdin; do not splice long text into the c
 
 ## 6. Project-specific roles
 
+Role cards have three layers that change independently: role duties (this skill's `assets/roles.toml`), project emphasis (`rules` and per-role `role_focus` in the project config), and model assignment (candidates with model, effort, and priority).
+
+- To start a project config from the user's default, run `roles.py init --root .` (preset `$CODEX_HOME/orchestration/presets/default.json`, or `--preset <name>`); then adjust `rules` and `role_focus` for the project.
 - To pin models, reasoning effort, or extra rules for a project, edit only the project's `.codex/orchestration.json` and run `roles.py generate --root .`; do not hand-edit generated role files.
+- `role_focus` reaches every dispatch mode: it is written into each contract, and also into generated project role files.
+- `roles.py doctor --root .` reports `advisories` from the user's model profile (`$CODEX_HOME/orchestration/models.json`): retired or unprofiled models, role/model mismatches, and a reviewer whose first-choice model shares a family with the worker or engineer. Advisories never change selection; relay them to the user rather than editing the config unasked.
+- When the user's preset changes, `roles.py diff-preset --root .` shows what differs; sync only with the user's approval.
 - Generated roles load only in a new session; afterwards, recopy the loaded roles and run `set-loaded-agents`.
 - Writing the project's `.codex/` or the global `$CODEX_HOME/agents/` (`roles.py install-global`) is a configuration change; ask the user for approval first.
 - Details: [Project roles](references/project-roles.md).

@@ -52,6 +52,14 @@ class SkillPackage(unittest.TestCase):
         data = json.loads((SKILL / "assets" / "orchestration.example.json").read_text(encoding="utf-8"))
         cfg = ol.validate_project_config(REPO, data)
         self.assertEqual(set(cfg["roles"]), set(ol.ROLES))
+        self.assertTrue(cfg["role_focus"])
+
+    def test_example_model_profile_validates(self):
+        data = json.loads((SKILL / "assets" / "models.example.json").read_text(encoding="utf-8"))
+        models = ol.validate_model_profile(data)
+        needs = {tag for role in ol.load_role_templates()["roles"].values() for tag in role.get("needs", [])}
+        covered = {tag for entry in models.values() for tag in entry.get("capabilities", [])}
+        self.assertEqual(needs - covered, set())
 
     def test_openai_yaml(self):
         text = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")

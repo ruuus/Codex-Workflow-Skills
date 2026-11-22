@@ -1,0 +1,27 @@
+{
+  "schema": "multi-agent-orchestration/models/v1",
+  "models": {
+    "example-model-a": {
+      "family": "family-a",
+      "capabilities": ["instruction-following", "coding", "debugging", "reasoning"],
+      "suited_roles": ["worker", "engineer"],
+      "evidence": "Placement used in an earlier project; no benchmark run",
+      "observed_at": "2026-01-01",
+      "verified": false
+    },
+    "example-model-b": {
+      "family": "family-b",
+      "capabilities": ["code-review", "reasoning", "long-context", "research", "writing", "instruction-following"],
+      "suited_roles": ["reviewer", "researcher", "editor"],
+      "evidence": "Smoke-tested as reviewer on a sample repository",
+      "observed_at": "2026-01-01",
+      "verified": true
+    },
+    "example-model-old": {
+      "family": "family-a",
+      "suited_roles": ["worker"],
+      "retired": true,
+      "notes": "Replaced by example-model-a"
+    }
+  }
+}

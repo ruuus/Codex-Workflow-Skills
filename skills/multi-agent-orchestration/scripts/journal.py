@@ -505,6 +505,8 @@ class Journal:
             "max_attempts": max_attempts,
             "project_rules": list(self.cfg["rules"]),
         }
+        if self.cfg["role_focus"].get(role):
+            contract["role_focus"] = self.cfg["role_focus"][role]
         if "execution_instructions" in raw:
             contract["execution_instructions"] = _nonempty_str(raw["execution_instructions"], "execution_instructions")
         if "requested_agent" in raw:
@@ -605,6 +607,9 @@ class Journal:
             contract = json.loads(task["contract_json"])
             before = contract["dispatch"]
             contract["project_rules"] = list(self.cfg["rules"])
+            contract.pop("role_focus", None)
+            if self.cfg["role_focus"].get(contract["role"]):
+                contract["role_focus"] = self.cfg["role_focus"][contract["role"]]
             self.attach_dispatch(contract, run)
             conn.execute(
                 "UPDATE tasks SET contract_json=?, updated_at=? WHERE run_id=? AND task_id=?",
@@ -668,6 +673,8 @@ class Journal:
                 raise OrchError(f"岗位选择或其配置已变化，拒绝 start；{hint}")
             if contract["project_rules"] != self.cfg["rules"]:
                 raise OrchError("项目 rules 已变化，拒绝 start；未开始过的任务可用 rebind")
+            if contract.get("role_focus") != self.cfg["role_focus"].get(contract["role"]):
+                raise OrchError("项目 role_focus 已变化，拒绝 start；未开始过的任务可用 rebind")
             attempt_no = (self.last_attempt(conn, run["run_id"], task["task_id"]) or {"attempt": 0})["attempt"] + 1
             exported = dict(contract, attempt=attempt_no)
             data = ol.pretty_json(exported).encode("utf-8")

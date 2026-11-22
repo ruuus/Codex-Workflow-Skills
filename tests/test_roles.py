@@ -430,5 +430,211 @@ class Drift(Base):
         self.assertEqual(started["dispatch"]["agent_type"], "orch_researcher")
 
 
+class RoleFocus(Base):
+    def task(self, run_id, role="worker", task_id="t"):
+        return {
+            "run_id": run_id, "task_id": task_id, "role": role, "objective": "x", "inputs": [], "read_scope": [],
+            "write_scope": [] if role in ol.READ_ONLY_ROLES else [f"src/{task_id}.py"], "dependencies": [],
+            "acceptance": ["a"], "failure_conditions": [],
+        }
+
+    def test_validation(self):
+        self.assertEqual(self.validate(self.config(role_focus={"reviewer": " 看时点 "}))["role_focus"], {"reviewer": "看时点"})
+        for bad in ({"boss": "x"}, {"reviewer": ""}, {"reviewer": 1}, ["x"]):
+            with self.assertRaises(ol.OrchError):
+                self.validate(self.config(role_focus=bad))
+
+    def test_generated_file_and_contract_carry_focus(self):
+        self.write_config(self.config(
+            {"worker": {"candidates": [{"agent": "proj_worker", "priority": 1}]}},
+            role_focus={"worker": "先写测试", "reviewer": "看时点"}))
+        self.roles("generate", "--root", str(self.root))
+        text = (self.root / ".codex" / "agents" / "proj_worker.toml").read_text(encoding="utf-8")
+        body = tomllib.loads(text)["developer_instructions"]
+        self.assertIn("## Project focus for this role\n先写测试", body)
+        self.assertNotIn("看时点", body)
+        self.journal("create-run", {"run_id": "r1", "objective": "x", "loaded_agents": {"observed_from": "t", "names": ["proj_worker"]}})
+        self.journal("add-task", self.task("r1"))
+        config = json.loads((self.root / ".codex" / "orchestration.json").read_text(encoding="utf-8"))
+        config["role_focus"]["worker"] = "先复现"
+        self.write_config(config)
+        self.roles("generate", "--root", str(self.root))
+        self.journal("start", {"run_id": "r1", "task_id": "t"}, ok=False)
+        self.journal("rebind", {"run_id": "r1", "task_id": "t"})
+        contract = json.loads(Path(self.journal("start", {"run_id": "r1", "task_id": "t"})["contract_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(contract["role_focus"], "先复现")
+
+    def test_global_roles_receive_focus_through_contract(self):
+        self.write_config(self.config(role_focus={"researcher": "注明来源日期"}))
+        self.journal("create-run", {"run_id": "r1", "objective": "x", "loaded_agents": {"observed_from": "t", "names": []}})
+        self.journal("add-task", self.task("r1", role="researcher"))
+        self.journal("add-task", self.task("r1", role="worker", task_id="w"))
+        researcher = json.loads(Path(self.journal("start", {"run_id": "r1", "task_id": "t"})["contract_path"]).read_text(encoding="utf-8"))
+        worker = json.loads(Path(self.journal("start", {"run_id": "r1", "task_id": "w"})["contract_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(researcher["role_focus"], "注明来源日期")
+        self.assertIn("role_focus", researcher["role_instructions"])
+        self.assertNotIn("role_focus", worker)
+
+
+PRESET = {
+    "schema": ol.CONFIG_SCHEMA,
+    "rules": ["默认规则"],
+    "roles": {
+        "worker": {"candidates": [
+            {"agent": "proj_worker", "priority": 1, "model": "example-model-a", "reasoning_effort": "max-available"},
+            {"agent": "orch_worker", "priority": 2},
+        ]},
+        "reviewer": {"candidates": [{"agent": "orch_reviewer", "priority": 1}]},
+    },
+}
+
+
+class Presets(Base):
+    def write_preset(self, name="default", data=PRESET):
+        path = self.home / "orchestration" / "presets" / f"{name}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        return path
+
+    def project_config(self):
+        return json.loads((self.root / ".codex" / "orchestration.json").read_text(encoding="utf-8"))
+
+    def test_init_writes_config_with_origin(self):
+        path = self.write_preset()
+        result = self.roles("init", "--root", str(self.root))
+        self.assertEqual(result["enabled_candidates"]["worker"], ["proj_worker", "orch_worker"])
+        config = self.project_config()
+        self.assertEqual(list(config)[:2], ["schema", "preset"])
+        self.assertEqual(config["preset"], {"name": "default", "sha256": ol.sha256_file(path)})
+        self.assertEqual(config["roles"], PRESET["roles"])
+        self.validate(config)
+        self.assertIn("已存在", self.roles("init", "--root", str(self.root), ok=False)["error"])
+
+    def test_init_rejects_missing_or_invalid_preset(self):
+        self.assertIn("预设不存在", self.roles("init", "--root", str(self.root), "--preset", "none", ok=False)["error"])
+        self.write_preset("bad", dict(PRESET, preset={"name": "x", "sha256": "0" * 64}))
+        self.assertIn("preset 键", self.roles("init", "--root", str(self.root), "--preset", "bad", ok=False)["error"])
+        self.write_preset("bad2", dict(PRESET, extra=1))
+        self.assertIn("未知键", self.roles("init", "--root", str(self.root), "--preset", "bad2", ok=False)["error"])
+        self.roles("init", "--root", str(self.root), "--preset", "../x", ok=False)
+        self.assertFalse((self.root / ".codex" / "orchestration.json").exists())
+
+    def test_diff_preset(self):
+        self.write_preset()
+        self.roles("init", "--root", str(self.root))
+        clean = self.roles("diff-preset", "--root", str(self.root))
+        self.assertEqual((clean["roles"], clean["other_keys_differ"], clean["preset_changed_since_init"]), ({}, [], False))
+        newer = json.loads(json.dumps(PRESET))
+        newer["roles"]["worker"]["candidates"][0]["priority"] = 0
+        newer["roles"]["worker"]["candidates"].append({"agent": "proj_worker_new", "priority": 1, "model": "example-model-b"})
+        self.write_preset(data=newer)
+        config = self.project_config()
+        config["roles"]["reviewer"]["candidates"].append({"agent": "proj_reviewer", "priority": 2})
+        config["rules"] = ["项目规则"]
+        self.write_config(config)
+        diff = self.roles("diff-preset", "--root", str(self.root))
+        self.assertTrue(diff["preset_changed_since_init"])
+        self.assertEqual(diff["roles"]["worker"]["only_in_preset"], ["proj_worker_new"])
+        self.assertEqual(diff["roles"]["worker"]["changed"], {"proj_worker": {"priority": [1, 0]}})
+        self.assertEqual(diff["roles"]["reviewer"]["only_in_project"], ["proj_reviewer"])
+        self.assertEqual(diff["other_keys_differ"], ["rules"])
+        self.assertEqual(self.project_config(), config)
+
+    def test_diff_requires_origin_or_name(self):
+        self.write_preset()
+        self.write_config(self.config(PRESET["roles"]))
+        self.assertIn("--preset", self.roles("diff-preset", "--root", str(self.root), ok=False)["error"])
+        diff = self.roles("diff-preset", "--root", str(self.root), "--preset", "default")
+        self.assertEqual((diff["preset"]["name"], diff["roles"], diff["recorded_sha256"]), ("default", {}, None))
+
+    def test_doctor_reports_presets(self):
+        self.write_preset()
+        self.write_preset("broken", {"schema": ol.CONFIG_SCHEMA, "dispatch": "fast"})
+        report = self.roles("doctor", ok=False)
+        self.assertEqual(report["presets"]["default"], "valid")
+        self.assertIn("dispatch", report["presets"]["broken"])
+
+
+PROFILE = {
+    "schema": ol.PROFILE_SCHEMA,
+    "models": {
+        "example-model-a": {"family": "fam-a", "capabilities": ["instruction-following", "coding"], "suited_roles": ["worker"]},
+        "example-model-b": {"family": "fam-a", "suited_roles": ["worker"], "retired": True},
+        "example-model-z": {"family": "fam-z"},
+    },
+}
+
+
+class ModelProfile(Base):
+    def write_profile(self, data=PROFILE):
+        path = self.home / "orchestration" / "models.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_validation(self):
+        self.assertIsNone(ol.load_model_profile())
+        self.write_profile()
+        self.assertEqual(set(ol.load_model_profile()["models"]), set(PROFILE["models"]))
+        bad_entries = ({}, {"family": "f", "speed": 1}, {"family": "f", "suited_roles": ["boss"]},
+                       {"family": "f", "verified": "yes"}, {"family": "f", "capabilities": "coding"})
+        for entry in bad_entries:
+            self.write_profile({"schema": ol.PROFILE_SCHEMA, "models": {"m": entry}})
+            with self.assertRaises(ol.OrchError):
+                ol.load_model_profile()
+        self.write_profile({"schema": "other", "models": {}})
+        report = self.roles("doctor", ok=False)
+        self.assertIn("error", report["model_profile"])
+
+    def test_catalog_cross_check(self):
+        self.write_catalog()
+        self.write_profile()
+        summary = self.roles("doctor")["model_profile"]
+        self.assertEqual(summary["not_in_catalog"], ["example-model-z"])
+
+    def advisories(self, roles_cfg):
+        self.write_config(self.config(roles_cfg))
+        return self.roles("doctor", "--root", str(self.root), ok=None)["project"]["advisories"]
+
+    def test_advisories(self):
+        self.write_profile()
+        notes = self.advisories({
+            "worker": {"candidates": [
+                {"agent": "proj_worker", "priority": 1, "model": "example-model-a"},
+                {"agent": "proj_worker_old", "priority": 2, "model": "example-model-b"},
+                {"agent": "proj_worker_x", "priority": 0, "model": "example-model-b"},
+            ]},
+            "reviewer": {"candidates": [
+                {"agent": "proj_reviewer", "priority": 1, "model": "example-model-b"},
+                {"agent": "proj_reviewer_new", "priority": 2, "model": "example-model-new"},
+            ]},
+        })
+        text = "\n".join(notes)
+        self.assertIn("proj_worker_old：模型 example-model-b 在档案中标为 retired", text)
+        self.assertNotIn("proj_worker_x", text)
+        self.assertIn("proj_reviewer：档案中 example-model-b 的 suited_roles 不含 reviewer", text)
+        self.assertIn("proj_reviewer_new：模型 example-model-new 不在模型档案中", text)
+        self.assertIn("reviewer 首选 proj_reviewer 与 worker 首选 proj_worker 同属模型家族 fam-a", text)
+        self.assertNotIn("proj_worker：", text)
+
+    def test_capabilities_and_inherit(self):
+        self.write_profile({"schema": ol.PROFILE_SCHEMA, "models": {"example-model-a": {"family": "f", "capabilities": ["coding"]}}})
+        notes = self.advisories({
+            "worker": {"candidates": [{"agent": "proj_worker", "priority": 1, "model": "example-model-a"}]},
+            "engineer": {"candidates": [{"agent": "orch_engineer", "priority": 1}]},
+            "reviewer": {"candidates": [{"agent": "orch_reviewer", "priority": 1}]},
+        })
+        text = "\n".join(notes)
+        self.assertIn("缺少岗位所需能力 instruction-following", text)
+        self.assertIn("reviewer 首选 orch_reviewer 与 engineer 首选 orch_engineer 都继承会话模型", text)
+        self.assertNotIn("与 worker", text)
+
+    def test_without_profile(self):
+        notes = self.advisories({"worker": {"candidates": [{"agent": "orch_worker", "priority": 1}]}})
+        self.assertIn("未找到模型档案", notes[0])
+        self.write_config(self.config())
+        self.assertEqual(self.roles("doctor", "--root", str(self.root))["project"]["advisories"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

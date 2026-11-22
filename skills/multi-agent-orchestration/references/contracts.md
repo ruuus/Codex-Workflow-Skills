@@ -29,7 +29,7 @@ This file describes `journal.py` contracts, delivery objects, dispatch messages,
 - Optional: `allowed_calls`, `execution_instructions`, `max_attempts` (1 or 2, default 2), `requested_agent` (only among the role's enabled candidates), `revises{run_id, task_id, attempt, reason}`.
 - `inputs` may point to absolute paths outside the project (for example, skill files); the ledger only checks their hashes, at registration and again at start.
 - Read-only roles (reviewer, researcher) must have an empty `write_scope`.
-- Fields added by the ledger: `contract_schema`, `read_scope_added_from_write` (write scope merged into read scope), `baseline_calls`, `project_rules`, `dispatch`; on inline dispatch also `role_instructions`. `start` adds `attempt` when exporting.
+- Fields added by the ledger: `contract_schema`, `read_scope_added_from_write` (write scope merged into read scope), `baseline_calls`, `project_rules`, `dispatch`; `role_focus` when the project config sets one for this role; on inline dispatch also `role_instructions`. `start` adds `attempt` when exporting, and refuses if `project_rules` or `role_focus` no longer match the config.
 
 ## baseline_calls and allowed_calls
 

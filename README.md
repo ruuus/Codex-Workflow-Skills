@@ -58,13 +58,20 @@ python -B -X utf8 "$env:USERPROFILE\.codex\skills\multi-agent-orchestration\scri
 
 主控会读取 `SKILL.md`，用 `journal.py` 建立 run、登记合同、派发、回收与验收。账本保存在项目的 `.orchestration/`（自带 `.gitignore`）。
 
-**可选的项目配置**：在项目中创建 `.codex/orchestration.json`（示例见 `skills/multi-agent-orchestration/assets/orchestration.example.json`），可设置保护路径、启动必读文件、preflight、项目规则、并发上限和项目专用岗位。配置岗位后运行：
+**可选的项目配置**：`.codex/orchestration.json`（示例见 `assets/orchestration.example.json`）可设置保护路径、启动必读文件、preflight、项目规则、各岗位侧重点（`role_focus`）、并发上限和项目专用岗位。
+
+角色卡分三层：岗位职责（技能自带）、项目侧重点（项目配置）、模型分配（候选的模型、档位与优先级）。模型分配可以写成用户级预设，供各项目复用：
+
+- 预设：`$CODEX_HOME/orchestration/presets/<名称>.json`，格式同项目配置；
+- 模型档案（可选）：`$CODEX_HOME/orchestration/models.json`，记录模型家族、能力与适合岗位，示例见 `assets/models.example.json`。
 
 ```powershell
-python -B -X utf8 <技能目录>\scripts\roles.py generate --root .
+python -B -X utf8 <技能目录>\scripts\roles.py init --root .          # 用预设 default 创建项目配置
+python -B -X utf8 <技能目录>\scripts\roles.py generate --root .      # 生成项目岗位文件
+python -B -X utf8 <技能目录>\scripts\roles.py diff-preset --root .   # 预设更新后对比差异
 ```
 
-详见 `references/project-roles.md`。
+生成后需新开 Codex 会话才会加载。`roles.py doctor --root .` 会根据模型档案给出选型建议。详见 `references/project-roles.md`。
 
 ## 目录结构
 
@@ -74,11 +81,12 @@ skills/multi-agent-orchestration/
   agents/openai.yaml           界面元数据
   assets/roles.toml            岗位职责（唯一来源）
   assets/orchestration.example.json
+  assets/models.example.json   模型档案示例
   references/contracts.md      合同、交付、派发消息与恢复
-  references/project-roles.md  项目岗位、模型目录与推理档位
+  references/project-roles.md  项目岗位、预设、模型档案与推理档位
   scripts/orchlib.py           共享库
   scripts/journal.py           账本
-  scripts/roles.py             岗位安装、生成与诊断
+  scripts/roles.py             岗位安装、初始化、生成与诊断
 tests/                         单元测试
 tools/install_skill.py         安装脚本
 ```

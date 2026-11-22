@@ -2,6 +2,16 @@
 
 Read this only when a project needs pinned models, reasoning effort, candidate order, or extra rules. Without a project config, the skill uses the global roles `orch_<role>` (installed by `roles.py install-global`, inheriting the global model and effort).
 
+## Three layers
+
+| Layer | What it holds | Where | Changes when |
+|---|---|---|---|
+| Role duties | how each role works | skill `assets/roles.toml` | rarely |
+| Project emphasis | `rules` for all roles, `role_focus` per role | project `.codex/orchestration.json` | per project |
+| Model assignment | candidates: model, effort, priority | user preset, then the project config | new models appear |
+
+A generated role file is: role duties + project rules + role focus + candidate instructions. Changing models touches only the candidates; changing emphasis touches only `rules` or `role_focus`.
+
 ## Config file `.codex/orchestration.json`
 
 ```json
@@ -11,6 +21,7 @@ Read this only when a project needs pinned models, reasoning effort, candidate o
   "protected_paths": ["data/raw"],
   "startup": {"read": ["AGENTS.md"], "preflight": {"command": "python -m unittest", "result": ".orchestration/preflight.txt"}},
   "rules": ["Raw data under data/raw is read-only"],
+  "role_focus": {"reviewer": "Check every data join for look-ahead bias"},
   "max_live": 3,
   "dispatch": "named",
   "agent_prefix": "proj",
@@ -30,6 +41,8 @@ Read this only when a project needs pinned models, reasoning effort, candidate o
   - `protected_paths` extends the default protected set (state directory, `.git`, `.codex`, `.agents`, `.env`);
   - `startup.read` lists files the coordinator must read at startup; `startup.preflight` is run once per session turn by the coordinator, and its result becomes a contract input;
   - `rules` go into every contract's `project_rules` and into managed role instructions;
+  - `role_focus` maps a role to the project's emphasis for that role; it goes into that role's contracts (`role_focus`, for every dispatch mode, including global `orch_*` and inline) and into its managed role files;
+  - `preset` (`{name, sha256}`) records which user preset `roles.py init` copied; do not write it by hand;
   - `max_live` can only lower the native concurrency limit;
   - `dispatch` is `auto` (default) or `named`; with `roles` it must be `named`;
   - `agent_prefix` defaults to `proj` and cannot be `orch`.
@@ -82,3 +95,49 @@ Third-party models reached through a gateway may have context windows and compac
 - Keep contracts lean: list only necessary inputs and scopes; reference large files by path and hash instead of pasting them into messages.
 - On truncated output, repeated compaction, or replies missing fields, first shrink the task (split files or steps) or switch to another candidate in the config; rework still counts against the two-attempt limit.
 - Do not automatically change global config, gateway routing, or the model catalog; when an adjustment is needed, describe the symptoms and recommendations to the user.
+
+## User presets
+
+A preset is a project config kept outside any project, at `$CODEX_HOME/orchestration/presets/<name>.json` (lowercase letters, digits, `_` or `-`). It uses the same schema as `.codex/orchestration.json` but must not contain `preset`. Keep model assignment there; leave project emphasis to each project.
+
+```powershell
+python -B -X utf8 <skill>/scripts/roles.py init --root . [--preset default]
+python -B -X utf8 <skill>/scripts/roles.py diff-preset --root . [--preset <name>]
+```
+
+- `init` copies the preset into `.codex/orchestration.json`, records `preset{name, sha256}`, and never overwrites an existing config. After that the project config is independent: edit it freely.
+- `diff-preset` is read-only. Per role it lists candidates only in the preset, only in the project, and changed fields as `[project, preset]`; it also lists other differing top-level keys and whether the preset changed since `init`. Sync by editing the project config, then `generate`.
+- `doctor` validates every preset and reports errors.
+
+## Model profile
+
+`$CODEX_HOME/orchestration/models.json` records what the user knows about each model; it is optional and only feeds `doctor` advisories.
+
+```json
+{
+  "schema": "multi-agent-orchestration/models/v1",
+  "models": {
+    "example-model-a": {
+      "family": "family-a",
+      "capabilities": ["instruction-following", "coding", "debugging", "reasoning"],
+      "suited_roles": ["worker", "engineer"],
+      "evidence": "where this judgment comes from",
+      "observed_at": "2026-01-01",
+      "verified": false
+    }
+  }
+}
+```
+
+- `family` is required; `capabilities`, `suited_roles`, `evidence`, `observed_at`, `verified`, `retired`, and `notes` are optional. A full example is in `assets/models.example.json`.
+- Capability tags used by the role templates (`needs` in `assets/roles.toml`): `instruction-following`, `coding`, `debugging`, `reasoning`, `code-review`, `long-context`, `research`, `writing`.
+- Mark `verified: true` only after the model was actually tested in that role; claims copied from vendors or earlier placements stay `false`.
+- `doctor --root .` lists `advisories` for enabled managed candidates: model not in the profile, model marked `retired`, role not in `suited_roles`, missing capability tags. It also checks independence: the reviewer's first-choice candidate should not share a model family with the first choice of worker or engineer (`independent_from` in the role template); candidates without a model and global `orch_*` count as "inherits the session model". `doctor` without `--root` lists profile models missing from the model catalog.
+- Advisories never block generation or selection.
+
+## Replacing models
+
+1. Add the new model to the catalog (if needed) and the model profile.
+2. In the preset (and in projects that should follow), add a candidate for it at a lower priority, for example 2, then `generate`, start a new session, and smoke-test it in that role.
+3. Once it works, raise it to priority 1 and set the old candidate to priority 0. Keep the old entry for history instead of deleting it; mark the old model `retired` in the profile.
+4. Run `doctor --root .`; tasks registered before the change are refused at `start` and must be `rebind`-ed.
