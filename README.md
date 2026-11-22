@@ -71,7 +71,7 @@ python -B -X utf8 <技能目录>\scripts\roles.py generate --root .      # 生�
 python -B -X utf8 <技能目录>\scripts\roles.py diff-preset --root .   # 预设更新后对比差异
 ```
 
-生成后需新开 Codex 会话才会加载。`roles.py doctor --root .` 会根据模型档案给出选型建议。详见 `references/project-roles.md`。
+生成后需新开 Codex 会话才会加载，且项目必须已受信任（应用内信任，或非交互运行时用 `codex exec --trust`），否则 `.codex/agents/` 会被忽略。`roles.py doctor --root .` 会根据模型档案给出选型建议。详见 `references/project-roles.md`。
 
 ## 目录结构
 

@@ -70,6 +70,7 @@ Role cards have three layers that change independently: role duties (this skill'
 - `roles.py doctor --root .` reports `advisories` from the user's model profile (`$CODEX_HOME/orchestration/models.json`): retired or unprofiled models, role/model mismatches, and a reviewer whose first-choice model shares a family with the worker or engineer. Advisories never change selection; relay them to the user rather than editing the config unasked.
 - When the user's preset changes, `roles.py diff-preset --root .` shows what differs; sync only with the user's approval.
 - Generated roles load only in a new session; afterwards, recopy the loaded roles and run `set-loaded-agents`.
+- Codex loads project-local configuration, including `.codex/agents/`, only for trusted projects. If no `proj_*` roles appear in the spawn tool's `agent_type` list, ask the user to trust the project (in the app, or `codex exec --trust` for non-interactive runs) rather than falling back.
 - Writing the project's `.codex/` or the global `$CODEX_HOME/agents/` (`roles.py install-global`) is a configuration change; ask the user for approval first.
 - Details: [Project roles](references/project-roles.md).
 
