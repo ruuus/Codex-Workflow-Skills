@@ -1,7 +1,5 @@
 """把本仓库 skills/<skill> 安装到 $CODEX_HOME/skills/<skill>（默认 ~/.codex/skills），并用清单追踪已安装文件。
 
-本仓库的技能只适用于 Codex，因此不安装到多个平台共享的 ~/.agents/skills。
-
 用法：python tools/install_skill.py <skill> [--dest 父目录] [--replace]
 """
 
