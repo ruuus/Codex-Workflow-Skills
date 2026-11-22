@@ -10,8 +10,8 @@
     }
   },
   "rules": [
-    "data/raw 下的原始资料只读",
-    "提交说明使用中文"
+    "Raw data under data/raw is read-only",
+    "Commit messages follow Conventional Commits"
   ],
   "max_live": 3,
   "dispatch": "named",
@@ -21,7 +21,7 @@
       "candidates": [
         {"agent": "proj_worker", "priority": 1, "model": "example-model-a", "reasoning_effort": "max-available"},
         {"agent": "proj_worker_light", "priority": 2, "model": "example-model-b", "reasoning_effort": "medium",
-         "instructions": "只处理单文件的小改动。"},
+         "instructions": "Handle only small single-file changes."},
         {"agent": "orch_worker", "priority": 3}
       ]
     },

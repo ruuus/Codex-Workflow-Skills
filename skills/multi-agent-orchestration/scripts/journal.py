@@ -33,11 +33,11 @@ REQUIRED_FIELDS = (
 OPTIONAL_FIELDS = ("allowed_calls", "execution_instructions", "max_attempts", "requested_agent", "revises")
 DELIVERY_KEYS = {"contract_receipt", "operations", "artifacts", "checks", "unresolved", "observations", "findings"}
 BASELINE_CALLS = [
-    "用任意只读方式读取权威合同、read_scope 与 write_scope 内的文件，并计算 SHA-256",
-    "整理、筛选或转换命令输出（如 JSON 解析、选择字段、格式化）",
-    "非递归列出 read_scope 或 write_scope 中明确列出的目录",
-    "在 write_scope 内创建、修改、回读文件并计算 SHA-256",
-    "为取得退出码或完整输出而重跑同一条只读命令",
+    "Read the authoritative contract and files within read_scope and write_scope by any read-only means, and compute SHA-256",
+    "Organize, filter, or transform command output (e.g. parse JSON, select fields, format)",
+    "List, non-recursively, directories explicitly named in read_scope or write_scope",
+    "Create, modify, and read back files within write_scope, and compute SHA-256",
+    "Rerun the same read-only command to obtain its exit code or full output",
 ]
 
 SCHEMA_SQL = """
@@ -618,17 +618,17 @@ class Journal:
 
     def dispatch_message(self, contract, attempt, path, digest) -> str:
         dispatch = contract["dispatch"]
-        who = dispatch["agent_type"] if dispatch["mode"] == "named" else "默认子代理（inline）"
+        who = dispatch["agent_type"] if dispatch["mode"] == "named" else "default subagent (inline)"
         lines = [
-            f"岗位：{contract['role']}（{who}）",
+            f"Role: {contract['role']} ({who})",
             f"run={contract['run_id']} task={contract['task_id']} attempt={attempt}",
-            f"权威合同：{path}",
-            f"合同 SHA-256：{digest}",
-            "先读取该合同，核对文件 SHA-256 与全部 inputs 哈希，不符即停止并报告。",
+            f"Authoritative contract: {path}",
+            f"Contract SHA-256: {digest}",
+            "Read this contract first and verify its SHA-256 and every inputs hash; on any mismatch, stop and report.",
         ]
         if dispatch["mode"] == "inline":
-            lines.append("你的岗位职责在合同 role_instructions 字段中，必须完整遵守。")
-        lines.append("按合同执行，最终回复只包含一个 JSON 交付对象。")
+            lines.append("Your role instructions are in the contract's role_instructions field; follow them in full.")
+        lines.append("Execute the contract; your final reply must contain exactly one JSON delivery object.")
         return "\n".join(lines)
 
     def cmd_start(self, payload) -> dict[str, Any]:

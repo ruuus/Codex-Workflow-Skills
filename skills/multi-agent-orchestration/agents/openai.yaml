@@ -1,6 +1,6 @@
 interface:
-  display_name: "多代理编排"
-  short_description: "按岗位派发 Codex 子代理，账本记录合同、写入范围与验收"
-  default_prompt: "使用 $multi-agent-orchestration 按岗位拆分任务、派发子代理，并由主控独立验收。"
+  display_name: "Multi-Agent Orchestration"
+  short_description: "Dispatch Codex subagents by role with a contract ledger"
+  default_prompt: "Use $multi-agent-orchestration to split the work by role, dispatch subagents, and have the coordinator verify results independently."
 policy:
   allow_implicit_invocation: true

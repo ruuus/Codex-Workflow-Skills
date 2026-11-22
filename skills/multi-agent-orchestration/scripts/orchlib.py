@@ -573,7 +573,7 @@ def render_project_agent(
     data = templates or load_role_templates()
     fields: dict[str, str] = {
         "name": cand["agent"],
-        "description": role_description(role, data) + "（项目岗位）",
+        "description": role_description(role, data) + " (project role)",
     }
     resolved = {"model": None, "reasoning_effort": None, "catalog_verified": catalog is not None, "catalog_entry_sha256": None}
     if "model" in cand:
@@ -585,9 +585,9 @@ def render_project_agent(
         fields["sandbox_mode"] = "read-only"
     parts = [role_instructions(role, data).rstrip("\n")]
     if cfg["rules"]:
-        parts.append("## 项目规则\n" + "\n".join(f"- {rule}" for rule in cfg["rules"]))
+        parts.append("## Project rules\n" + "\n".join(f"- {rule}" for rule in cfg["rules"]))
     if cand.get("instructions"):
-        parts.append("## 候选补充说明\n" + cand["instructions"].strip())
+        parts.append("## Candidate notes\n" + cand["instructions"].strip())
     fields["developer_instructions"] = "\n\n".join(parts) + "\n"
     return render_agent_toml(fields), resolved
 

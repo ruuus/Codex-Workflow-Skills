@@ -100,7 +100,7 @@ class Rendering(Base):
             self.assertNotIn("model", parsed)
             self.assertNotIn("model_reasoning_effort", parsed)
             self.assertEqual(parsed.get("sandbox_mode") == "read-only", role in ol.READ_ONLY_ROLES)
-            self.assertIn("通用子代理规则", parsed["developer_instructions"])
+            self.assertIn("Common subagent rules", parsed["developer_instructions"])
             self.assertNotIn("\r", text)
 
     def test_rejects_triple_quote(self):

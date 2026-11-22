@@ -1,75 +1,75 @@
 ---
 name: multi-agent-orchestration
-description: 在用户明确要求多代理/子代理分工、并行实施或独立审查时，由主控按岗位（worker、engineer、reviewer、researcher、editor）派发 Codex 子代理，以 SQLite 账本记录合同、文件所有权与验收；可为单个项目生成专用岗位和模型候选。适用于任意项目；项目自带编排技能时以项目为准。Multi-agent orchestration, subagents, contracts, ledger.
+description: Coordinator-led multi-agent orchestration for Codex. Use only when the user explicitly asks for multi-agent or subagent work division, parallel implementation, or independent review. Dispatches Codex subagents by role (worker, engineer, reviewer, researcher, editor) and records contracts, file ownership, and acceptance in a SQLite ledger; can generate project-specific roles and model candidates. Works with any project; if the project ships its own orchestration skill, that skill takes precedence.
 license: MIT
 ---
 
-# 多代理编排
+# Multi-Agent Orchestration
 
-主控（当前会话）拆分任务、写合同、派发子代理、独立验收；子代理只按合同执行。账本 `scripts/journal.py` 记录每一步，岗位工具 `scripts/roles.py` 管理岗位定义。脚本只用 Python ≥3.11 标准库，下文 `<skill>` 指本技能目录，命令都在项目根执行：
+The coordinator (the current session) splits work, writes contracts, dispatches subagents, and accepts results independently; subagents only execute their contracts. The ledger `scripts/journal.py` records every step, and `scripts/roles.py` manages role definitions. The scripts use only the Python 3.11+ standard library. Below, `<skill>` is this skill's directory; run commands from the project root:
 
 ```powershell
-python -B -X utf8 <skill>/scripts/journal.py --root . <命令> --input <JSON 文件>
+python -B -X utf8 <skill>/scripts/journal.py --root . <command> --input <JSON file>
 python -B -X utf8 <skill>/scripts/roles.py doctor --root .
 ```
 
-JSON 输入用 UTF-8 文件或 stdin 传入，不要把长文本拼进命令行。合同和交付的完整格式见 [合同与交付](references/contracts.md)；项目专用岗位见 [项目岗位](references/project-roles.md)。
+Pass JSON input as a UTF-8 file or via stdin; do not splice long text into the command line. Full contract and delivery formats: [Contracts and deliveries](references/contracts.md). Project-specific roles: [Project roles](references/project-roles.md).
 
-## 1. 适用条件
+## 1. When to use
 
-- 只在用户明确要求多代理、子代理分工、并行实施或独立审查时使用。
-- 主控能直接完成的小任务直接做，不为形式拆分。
-- 项目自带编排技能（例如 `.codex/orchestration.json` 没有本技能的 `schema`）时以项目为准，本技能脚本会拒绝该配置。
+- Use only when the user explicitly asks for multi-agent or subagent work division, parallel implementation, or independent review.
+- Do small tasks the coordinator can finish directly; do not split work for form's sake.
+- If the project has its own orchestration skill (for example, `.codex/orchestration.json` lacks this skill's `schema`), the project wins; this skill's scripts reject that config.
 
-## 2. 启动
+## 2. Startup
 
-1. 读项目 `AGENTS.md`，以及项目配置 `startup.read` 列出的文件。
-2. 运行 `journal.py config` 和 `roles.py doctor --root .`，确认状态目录、并发上限、保护路径、岗位状态和模型目录。
-3. 配置了 `startup.preflight` 时，主控本轮运行一次该命令，把结果写到 `result` 路径，作为合同 inputs 引用；子代理不重复运行。
-4. 记录已加载岗位：从当前会话原生派发工具（`spawn_agent`）的 `agent_type` 参数说明中抄录可选的精确岗位名；没有该参数时记为空数组。不得用磁盘上的岗位文件列表代替。逐项抄录说明中出现的全部名称，不要只挑与本轮任务相关的；提交前与说明逐一核对，漏抄会导致本可具名派发的任务被降级。
-5. `create-run`：`{"run_id", "objective", "loaded_agents": {"observed_from": "抄录依据", "names": [...]}}`。会话变化（新开会话、岗位重新加载）后用 `set-loaded-agents` 更新。
+1. Read the project's `AGENTS.md` and the files listed in the project config's `startup.read`.
+2. Run `journal.py config` and `roles.py doctor --root .` to confirm the state directory, concurrency limit, protected paths, role status, and model catalog.
+3. If `startup.preflight` is configured, the coordinator runs that command once per session turn, writes the output to the `result` path, and references it as a contract input; subagents do not rerun it.
+4. Record loaded roles: copy the exact role names offered in the `agent_type` parameter description of the session's native dispatch tool (`spawn_agent`); use an empty array if the parameter does not exist. Do not substitute a listing of role files on disk. Copy every name in the description, not just those relevant to this run, and check the list against the description before submitting; a missed name downgrades tasks that could have been dispatched by name.
+5. `create-run`: `{"run_id", "objective", "loaded_agents": {"observed_from": "where the names were copied from", "names": [...]}}`. After the session changes (new session, roles reloaded), update with `set-loaded-agents`.
 
-## 3. 主循环
+## 3. Main loop
 
-1. **登记**：`add-task` 写入合同（单个或 `{"tasks":[...]}` 批量，批量原子执行）。账本自动选择岗位并写入 `dispatch`、`project_rules`、`baseline_calls`；inline 时另写 `role_instructions`。返回 `notice` 时把降级原因告诉用户。
-2. **开始**：`start` 检查依赖已 accepted、并发名额、写入范围不重叠、inputs 哈希和岗位选择未漂移，导出不可覆盖的合同文件，返回绝对路径、SHA-256 和派发消息 `message`。
-3. **派发**：用原生工具派发，消息只含 `message` 的内容（岗位、run/task/attempt、合同路径和哈希、核对指令），不转抄合同正文。
-   - named 传 `agent_type=dispatch.agent_type`；inline 完全省略 `agent_type`（不要填 `default` 等占位值），`bind` 中如实记录实际传入的值。
-   - 不继承上下文：v1 `fork_context=false`，v2 `fork_turns="none"`。
-   - 不传 `model`、`reasoning_effort`。
-   - 派发被拒且没有拿到 Agent 句柄时用 `cancel-start`（不计尝试）。
-4. **绑定**：`bind` 记录 Agent 句柄和实际派发参数 `spawn{tool_version, agent_type, inherits_context, model_override, reasoning_effort_override}`；每次尝试只能绑定一次。
-5. **回收**：用会话实际提供的等待工具收齐结果，把回复原文交给账本：先 `check-report`，再 `report`（`reply` 或 `reply_path`）。账本保存每版原文。交付不一致时用补充消息请同一代理更正一次（不计新尝试）；第二次仍不一致自动记为 failed。
-6. **释放**：关闭代理并确认它已终止（关闭工具的返回或状态为依据），再 `release`（`terminal_confirmed:true` 和依据）。release 前写入范围和并发名额一直占用。
-7. **验收**：主控独立复核产物（读文件、跑测试、看差异），不以子代理自报为准。通过则 `accept`，附主控自己的 `checks`、证据文件和空 `unresolved`；不通过则 `fail`，release 后视情况 `retry`。
-8. **收尾**：全部任务 accepted 后 `finish`；无法完成时 `close-run`（保留全部失败记录）。最终报告区分「已验证」「未验证」「已降级」三类，可在 `finish` 时以 `report` 固定其哈希。项目有 checkpoint 流程时照做。
+1. **Register**: `add-task` records contracts (one, or a `{"tasks":[...]}` batch applied atomically). The ledger selects the role and adds `dispatch`, `project_rules`, and `baseline_calls`; on inline dispatch it also adds `role_instructions`. If a `notice` is returned, tell the user the fallback reason.
+2. **Start**: `start` checks that dependencies are accepted, a concurrency slot is free, write scopes do not overlap, inputs hashes match, and role selection has not drifted; it exports an immutable contract file and returns its absolute path, SHA-256, and the dispatch `message`.
+3. **Dispatch**: dispatch with the native tool; the message is exactly `message` (role, run/task/attempt, contract path and hash, verification instruction). Do not paste the contract body.
+   - named: pass `agent_type=dispatch.agent_type`; inline: omit `agent_type` entirely (no placeholder such as `default`), and record in `bind` exactly what was passed.
+   - No inherited context: v1 `fork_context=false`, v2 `fork_turns="none"`.
+   - Do not pass `model` or `reasoning_effort`.
+   - If dispatch is refused and no agent handle was obtained, use `cancel-start` (does not count as an attempt).
+4. **Bind**: `bind` records the agent handle and actual spawn arguments `spawn{tool_version, agent_type, inherits_context, model_override, reasoning_effort_override}`; each attempt can be bound only once.
+5. **Collect**: wait with the tool the session actually provides, then hand the raw reply to the ledger: `check-report` first, then `report` (`reply` or `reply_path`). The ledger keeps every raw version. If the delivery is inconsistent, ask the same agent once for a correction via a follow-up message (not a new attempt); a second inconsistent delivery is recorded as failed automatically.
+6. **Release**: close the agent and confirm it has terminated (based on the close tool's result or status), then `release` (`terminal_confirmed:true` plus the basis). Until release, the write scope and concurrency slot stay occupied.
+7. **Accept**: the coordinator independently verifies the artifacts (read files, run tests, inspect diffs) rather than trusting the subagent's self-report. On success, `accept` with the coordinator's own `checks`, evidence files, and empty `unresolved`; otherwise `fail`, then after release `retry` if appropriate.
+8. **Finish**: once all tasks are accepted, `finish`; if the run cannot be completed, `close-run` (all failure records are kept). The final report separates "verified", "unverified", and "degraded"; its hash can be pinned via `report` at `finish`. Follow the project's checkpoint process if it has one.
 
-## 4. 并发与写入所有权
+## 4. Concurrency and write ownership
 
-- 并发上限取项目 `.codex/config.toml`、再取 `$CODEX_HOME/config.toml` 中的 `[agents].max_concurrent_threads_per_session`，都没有时为 6；项目配置 `max_live` 只能把它调低。同一项目所有进行中的 run 共享名额和写入占用。
-- 写入范围按真实路径和目录包含关系判断冲突，同一时刻一个路径只属于一个任务。一个任务拥有其写入范围内的全部修改，包括测试与生成文件。
-- 子代理不得写入状态目录、`.git`、`.codex`、`.agents`、`.env` 和配置的 `protected_paths`；写入范围不能是项目根。
-- reviewer、researcher 是只读岗，`write_scope` 必须为空，交付的 `artifacts` 必须为空。
-- 只有主控派发；子代理不再派生代理。不得留下脱离控制的后台进程。
+- The concurrency limit is `[agents].max_concurrent_threads_per_session` from the project `.codex/config.toml`, then `$CODEX_HOME/config.toml`, defaulting to 6; the project config's `max_live` can only lower it. All active runs in a project share slots and write ownership.
+- Write-scope conflicts are decided by real paths and directory containment; at any moment a path belongs to one task. A task owns every change within its write scope, including tests and generated files.
+- Subagents must not write to the state directory, `.git`, `.codex`, `.agents`, `.env`, or configured `protected_paths`; a write scope cannot be the project root.
+- reviewer and researcher are read-only roles: `write_scope` must be empty, and delivered `artifacts` must be empty.
+- Only the coordinator dispatches; subagents do not spawn further agents. Leave no uncontrolled background processes.
 
-## 5. 审查发现、返工与恢复
+## 5. Findings, rework, and recovery
 
-- reviewer 独立阅读要求和产物，问题写入 `findings`（位置、触发条件、影响、证据、是否阻断）。
-- 主控 accept 审查任务时逐条处置 findings：`confirmed` 或 `rejected`，都要附证据。已确认的阻断项必须指向同一 run 中已登记的修复任务 `followup_task_id`（先 `add-task` 修复任务，再 accept 审查）。
-- 修复由 engineer（或原岗位）完成，修复任务 accepted 后再登记复审任务；`finish` 要求全部任务 accepted，因此修复和复审都必须完成。
-- 每个任务最多两次尝试（`max_attempts` 1 或 2）。失败如实保留：不靠新任务、新 run 或新会话掩盖失败；需要改合同时另立带 `revises` 的修订任务。
-- 中断恢复：`status` → 核对原生 Agent 实际状态 → `interrupt` → 确认终止 → `release` → `retry`。上下文压缩后，先重读本文件、合同和 `status` 再继续。
+- The reviewer independently reads requirements and artifacts and records issues in `findings` (location, trigger, impact, evidence, blocking).
+- When accepting a review task, the coordinator dispositions every finding as `confirmed` or `rejected`, each with evidence. A confirmed blocking finding must point to a fix task `followup_task_id` already registered in the same run (`add-task` the fix first, then accept the review).
+- The engineer (or the original role) does the fix; after the fix task is accepted, register a re-review task. `finish` requires every task to be accepted, so both fix and re-review must complete.
+- Each task gets at most two attempts (`max_attempts` 1 or 2). Keep failures as they are: do not hide them behind new tasks, new runs, or new sessions; when a contract must change, open a revision task with `revises`.
+- Interrupt recovery: `status` → check the native agent's actual state → `interrupt` → confirm termination → `release` → `retry`. After context compaction, reread this file, the contracts, and `status` before continuing.
 
-## 6. 项目专用岗位
+## 6. Project-specific roles
 
-- 需要为项目固定模型、推理档位或补充规则时，只修改项目 `.codex/orchestration.json`，再运行 `roles.py generate --root .`；不要手改生成的岗位文件。
-- 生成的岗位需新开会话才会加载；之后重新抄录已加载岗位并 `set-loaded-agents`。
-- 写入项目 `.codex/` 和全局 `$CODEX_HOME/agents/`（`roles.py install-global`）都属于配置变更，先请求用户批准。
-- 详细规则见 [项目岗位](references/project-roles.md)。
+- To pin models, reasoning effort, or extra rules for a project, edit only the project's `.codex/orchestration.json` and run `roles.py generate --root .`; do not hand-edit generated role files.
+- Generated roles load only in a new session; afterwards, recopy the loaded roles and run `set-loaded-agents`.
+- Writing the project's `.codex/` or the global `$CODEX_HOME/agents/` (`roles.py install-global`) is a configuration change; ask the user for approval first.
+- Details: [Project roles](references/project-roles.md).
 
-## 7. 如实性约束
+## 7. Honesty constraints
 
-- 不冒充具名派发：未加载岗位时只能 inline 或停止，并如实记录 `degraded_reason`。
-- 不声称模型身份或推理档位已生效；岗位文件和目录声明只是期望配置。
-- 不采集、不报告 token 用量或费用。
-- 岗位文件里的 `sandbox_mode` 和合同范围不是操作系统隔离。实测（Codex CLI 0.167.2，主控以 `-s workspace-write` 运行）中，带 `sandbox_mode = "read-only"` 的 reviewer 子代理实际沙箱仍是 workspace-write，只读约束只靠岗位指令；主控须审查实际命令、输出和文件变化（如 `git status`）。
+- Never pretend to dispatch by name: when a role is not loaded, either dispatch inline or stop, and record `degraded_reason` truthfully.
+- Do not claim a model identity or reasoning effort took effect; role files and catalog entries only declare the intended configuration.
+- Do not collect or report token usage or cost.
+- `sandbox_mode` in role files and contract scopes are not OS-level isolation. In testing (Codex CLI 0.167.2, coordinator run with `-s workspace-write`), a reviewer subagent with `sandbox_mode = "read-only"` still ran with a workspace-write sandbox; the read-only constraint relies on role instructions alone, so the coordinator must review actual commands, output, and file changes (for example, `git status`).
