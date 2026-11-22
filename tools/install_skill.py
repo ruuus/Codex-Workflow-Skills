@@ -1,4 +1,6 @@
-"""把本仓库 skills/<skill> 安装到 ~/.agents/skills/<skill>，并用清单追踪已安装文件。
+"""把本仓库 skills/<skill> 安装到 $CODEX_HOME/skills/<skill>（默认 ~/.codex/skills），并用清单追踪已安装文件。
+
+本仓库的技能只适用于 Codex，因此不安装到多个平台共享的 ~/.agents/skills。
 
 用法：python tools/install_skill.py <skill> [--dest 父目录] [--replace]
 """
@@ -140,10 +142,10 @@ def main(argv: list[str] | None = None) -> int:
             pass
     parser = argparse.ArgumentParser(description="安装本仓库中的 Codex 技能")
     parser.add_argument("skill")
-    parser.add_argument("--dest", help="安装到的父目录，默认 ~/.agents/skills")
+    parser.add_argument("--dest", help="安装到的父目录，默认 $CODEX_HOME/skills")
     parser.add_argument("--replace", action="store_true", help="备份后替换不受清单管理或被改动的目录")
     args = parser.parse_args(argv)
-    dest = Path(args.dest).expanduser() if args.dest else Path.home() / ".agents" / "skills"
+    dest = Path(args.dest).expanduser() if args.dest else codex_home() / "skills"
     try:
         result = install(args.skill, dest, args.replace)
     except InstallError as exc:

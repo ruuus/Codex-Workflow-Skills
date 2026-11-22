@@ -17,7 +17,7 @@ Codex 工作流技能仓库：收录可在任意项目中复用的 Codex 技能�
 
 ## 安装
 
-以下两种方式**只选其一**：两者安装位置不同（Codex 都会加载），都装会出现重复技能。
+本仓库的技能只适用于 Codex，两种方式都安装到 `$CODEX_HOME/skills/`（默认 `~/.codex/skills/`）。不要装到多个平台共享的 `~/.agents/skills/`，以免其他工具误加载。两种方式**只选其一**，后续更新也用同一种方式。
 
 **方式一：skill-installer（Codex 自带，安装到 `$CODEX_HOME/skills/`）**
 
@@ -26,7 +26,7 @@ python "$env:USERPROFILE\.codex\skills\.system\skill-installer\scripts\install-s
   --repo ruuus/Codex-Workflow-Skills --path skills/multi-agent-orchestration
 ```
 
-**方式二：克隆仓库后用本仓库的安装脚本（安装到 `~/.agents/skills/`）**
+**方式二：克隆仓库后用本仓库的安装脚本（安装到 `$CODEX_HOME/skills/`，可更新）**
 
 ```powershell
 git clone https://github.com/ruuus/Codex-Workflow-Skills.git
@@ -34,17 +34,15 @@ cd Codex-Workflow-Skills
 python -B tools/install_skill.py multi-agent-orchestration
 ```
 
-默认安装到 `~/.agents/skills/multi-agent-orchestration/`，并写入 `.skill-install.json` 清单。再次运行时内容相同则跳过、按清单更新；目标目录被改动或含清单外文件时拒绝，加 `--replace` 会先备份到 `$CODEX_HOME/backups/<技能>/<时间戳>/` 再替换。
+默认安装到 `$CODEX_HOME/skills/multi-agent-orchestration/`，并写入 `.skill-install.json` 清单。再次运行时内容相同则跳过、按清单更新；目标目录被改动或含清单外文件（例如方式一装的目录）时拒绝，加 `--replace` 会先备份到 `$CODEX_HOME/backups/<技能>/<时间戳>/` 再替换。
 
 方式一的目标已存在时会报错，更新前需先移走旧目录。Linux / macOS 把 `$env:USERPROFILE\...` 换成 `~/...` 即可。
 
 ## 安装全局岗位
 
 ```powershell
-python -B -X utf8 "$env:USERPROFILE\.agents\skills\multi-agent-orchestration\scripts\roles.py" install-global
+python -B -X utf8 "$env:USERPROFILE\.codex\skills\multi-agent-orchestration\scripts\roles.py" install-global
 ```
-
-用方式一安装时，脚本位于 `$env:USERPROFILE\.codex\skills\multi-agent-orchestration\scripts\roles.py`。
 
 生成 `$CODEX_HOME/agents/orch_worker.toml` 等五个岗位文件。它们不写模型和推理档位，继承全局设置；reviewer、researcher 另写 `sandbox_mode = "read-only"`。**装完需要新开 Codex 会话才会加载。** 不安装也能用：技能会降级为 inline 派发并说明原因。
 

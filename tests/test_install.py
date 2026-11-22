@@ -54,6 +54,15 @@ class InstallSkill(unittest.TestCase):
         self.assertFalse((self.target / "scripts" / "__pycache__").exists())
         self.assertEqual(self.install()["action"], "unchanged")
 
+    def test_default_dest_is_codex_home_skills(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = install_skill.main(["demo"])
+        result = json.loads(buf.getvalue())
+        self.assertEqual(code, 0, result)
+        self.assertEqual(Path(result["target"]), self.home / "skills" / "demo")
+        self.assertTrue((self.home / "skills" / "demo" / "SKILL.md").exists())
+
     def test_update_follows_manifest(self):
         self.install()
         (self.skill / "scripts" / "a.py").unlink()
